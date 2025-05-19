@@ -19,60 +19,107 @@
     <!-- This div is where the map will appear -->
     <div id="map"></div>
     <script>
-        // Create the map and set its starting position and zoom
-        var map = new maplibregl.Map({
-            container: 'map',
-            style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json', // OpenStreetMap style. This can be replaced with any MapLibre style URL, see the exercise for more 
-            center: [-122.411, 37.785], // [longitude, latitude]
-            zoom: 8
-        });
+        // Make sure scripts are loaded before creating the map
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if maplibregl is loaded
+            if (typeof maplibregl === 'undefined') {
+                console.error("MapLibre GL JS library not loaded!");
+                document.body.innerHTML = '<div style="text-align: center; padding: 20px;">Error: Map library failed to load. Please check your internet connection and try again.</div>';
+                return;
+            }
+            
+            // Create the map and set its starting position and zoom
+            var map = new maplibregl.Map({
+                container: 'map',
+                style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json', // OpenStreetMap style
+                center: [-122.411, 37.785], // [longitude, latitude]
+                zoom: 8
+            });
 
-        // When the page is ready, get the CSV data
-        $(document).ready(function () {
+            // Wait for the map to load before fetching data
+        map.on('load', function() {
+            // Get the CSV data
             $.ajax({
                 type: "GET",
-                //YOUR TURN: Replace with csv export link
-                url: 'https://docs.google.com/spreadsheets/d/1jxu_XcCLrD4fZphGq0Jey_mUc20WkPlmRW63BrzPjJQ/gviz/tq?tqx=out:csv&sheet=cal_haunted_places', // replace the text in single quotes with the link to your CSV file
+                url: 'https://docs.google.com/spreadsheets/d/1jxu_XcCLrD4fZphGq0Jey_mUc20WkPlmRW63BrzPjJQ/gviz/tq?tqx=out:csv&sheet=cal_haunted_places', 
                 dataType: "text",
-                success: function (csvData) { makeGeoJSON(csvData); }
+                success: function(csvData) { 
+                    makeGeoJSON(csvData);
+                },
+                error: function(xhr, status, error) {
+                    console.error("CSV load error:", error);
+                    alert("Failed to load CSV data. Check console for details.");
+                }
             });
-            function makeGeoJSON(csvData) {
-                csv2geojson.csv2geojson(csvData, {
-                    latfield: 'latitude', // replace with the actual column name for latitude in your CSV
-                    lonfield: 'longitude', // replace with the actual column name for longitude in your CSV
-                    delimiter: ','
-                }, function (err, geojson) {
-                    map.on('load', function () {
-                        map.addLayer({
-                            id: 'points',
-                            type: 'circle',
-                            source: { type: 'geojson', data: geojson },
-                            paint: {
-                                'circle-radius': 10,
-                                'circle-color': 'purple'
-                            }
-                        });
-                        // When a point is clicked, show a popup
-                        map.on('click', 'points', function (e) {
-                            var props = e.features[0].properties;
-                            // Create popup HTML: location as heading, description as text
-                            var html = `<h3>${props.location}</h3><p>${props.description}</p>`; // replace 'location' and 'description' with the actual column names from your CSV
-                            new maplibregl.Popup()
-                                .setLngLat(e.lngLat)
-                                .setHTML(html)
-                                .addTo(map);
-                        });
+        });
 
-                        // Change cursor to pointer when hovering over points
-                        map.on('mouseenter', 'points', function () {
-                            map.getCanvas().style.cursor = 'pointer';
-                        });
-                        map.on('mouseleave', 'points', function () {
-                            map.getCanvas().style.cursor = '';
-                        });
-                    });
+        function makeGeoJSON(csvData) {
+            csv2geojson.csv2geojson(csvData, {
+                latfield: 'latitude',
+                lonfield: 'longitude',
+                delimiter: ','
+            }, function(err, geojson) {
+                if (err) {
+                    console.error("Error converting CSV to GeoJSON:", err);
+                    return;
+                }
+                
+                // Check if we have valid data
+                if (!geojson || !geojson.features || geojson.features.length === 0) {
+                    console.error("No valid features found in CSV data");
+                    return;
+                }
+                
+                console.log("GeoJSON data loaded:", geojson);
+                
+                // Add the GeoJSON as a source
+                map.addSource('points-source', {
+                    type: 'geojson',
+                    data: geojson
                 });
-            }
+                
+                // Add a layer using the source
+                map.addLayer({
+                    id: 'points',
+                    type: 'circle',
+                    source: 'points-source',
+                    paint: {
+                        'circle-radius': 10,
+                        'circle-color': 'purple'
+                    }
+                });
+
+                // When a point is clicked, show a popup
+                map.on('click', 'points', function(e) {
+                    var props = e.features[0].properties;
+                    // Create popup HTML
+                    var html = `<h3>${props.location || 'Unknown Location'}</h3><p>${props.description || 'No description available'}</p>`;
+                    
+                    new maplibregl.Popup()
+                        .setLngLat(e.lngLat)
+                        .setHTML(html)
+                        .addTo(map);
+                });
+
+                // Change cursor to pointer when hovering over points
+                map.on('mouseenter', 'points', function() {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                
+                map.on('mouseleave', 'points', function() {
+                    map.getCanvas().style.cursor = '';
+                });
+                
+                // Fit the map to the bounds of all points
+                if (geojson.features.length > 0) {
+                    var bounds = new maplibregl.LngLatBounds();
+                    geojson.features.forEach(function(feature) {
+                        bounds.extend(feature.geometry.coordinates);
+                    });
+                    map.fitBounds(bounds, { padding: 50 });
+                }
+            });
+        }
         });
     </script>
 </body>
